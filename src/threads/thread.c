@@ -105,18 +105,18 @@ thread_update_priority (struct thread *t)
   if (!list_empty (&t->locks_held))
     {
       list_sort (&t->locks_held, lock_priority_less, NULL);
-      struct lock *l = list_entry (list_front (&t->locks_held), struct lock, elem);
+      struct lock *l = list_entry (list_begin (&t->locks_held), struct lock, elem);
       if (l->max_priority > t->priority)
         t->priority = l->max_priority;
     }
 
   if (t->status == THREAD_READY)
     {
-      list_sort (&ready_list, thread_priority_less, NULL);
+      list_remove (&t->elem);
+      list_insert_ordered (&ready_list, &t->elem, thread_priority_less, NULL);
     }
-  else if (t->status == THREAD_RUNNING && t->priority < old_priority)
+  else if (t->status == THREAD_RUNNING)
     {
-      /* Yield if we dropped priority and are no longer highest. */
       if (!list_empty (&ready_list))
         {
           struct thread *highest = list_entry (list_begin (&ready_list), struct thread, elem);
@@ -130,7 +130,6 @@ thread_update_priority (struct thread *t)
 void
 thread_donate_priority (struct thread *t)
 {
-  enum intr_level old_level = intr_disable ();
   struct thread *cur = t;
   
   for (int depth = 0; depth < 8; depth++)
@@ -140,33 +139,31 @@ thread_donate_priority (struct thread *t)
       
       struct lock *lock = cur->wait_lock;
       struct thread *holder = lock->holder;
+      
       if (holder == NULL)
         break;
       
-      /* Update lock's max_priority to ensure persistence of donation. */
       if (cur->priority > lock->max_priority)
         lock->max_priority = cur->priority;
-
-      /* Only update holder's priority if we are boosting it. 
-         This handles multiple donations (respecting the max). */
-      if (holder->priority < cur->priority)
+      
+      if (cur->priority > holder->priority)
         {
           holder->priority = cur->priority;
           
-          /* Re-sort the list the holder is in, if any. */
           if (holder->status == THREAD_READY)
             {
-              list_sort (&ready_list, thread_priority_less, NULL);
+              list_remove (&holder->elem);
+              list_insert_ordered (&ready_list, &holder->elem, thread_priority_less, NULL);
             }
           else if (holder->status == THREAD_BLOCKED && holder->wait_sema != NULL)
             {
-              list_sort (&holder->wait_sema->waiters, thread_priority_less, NULL);
+              list_remove (&holder->elem);
+              list_insert_ordered (&holder->wait_sema->waiters, &holder->elem, thread_priority_less, NULL);
             }
         }
-        
+      
       cur = holder;
     }
-  intr_set_level (old_level);
 }
 
 void
