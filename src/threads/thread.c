@@ -95,9 +95,6 @@ thread_priority_less (const struct list_elem *a, const struct list_elem *b, void
   return ta->priority > tb->priority; 
 }
 
-  return ta->priority > tb->priority; 
-}
-
 /* Updates the priority of the current thread. */
 void
 thread_update_priority (struct thread *t)
@@ -419,9 +416,6 @@ thread_foreach (thread_action_func *func, void *aux)
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
-void
-thread_set_priority (int new_priority) 
-{
 void
 thread_set_priority (int new_priority) 
 {
