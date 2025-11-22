@@ -95,15 +95,6 @@ thread_priority_less (const struct list_elem *a, const struct list_elem *b, void
   return ta->priority > tb->priority; 
 }
 
-/* Returns true if lock A has higher priority than lock B. */
-bool
-lock_priority_less (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
-{
-  struct lock *la = list_entry (a, struct lock, elem);
-  struct lock *lb = list_entry (b, struct lock, elem);
-  return la->max_priority > lb->max_priority;
-}
-
 /* Updates the priority of the current thread. */
 void
 thread_update_priority (struct thread *t)
@@ -119,8 +110,20 @@ thread_update_priority (struct thread *t)
         t->priority = l->max_priority;
     }
 
-  if (t->priority != old_priority && t->status == THREAD_READY)
-    list_sort (&ready_list, thread_priority_less, NULL);
+  if (t->status == THREAD_READY)
+    {
+      list_sort (&ready_list, thread_priority_less, NULL);
+    }
+  else if (t->status == THREAD_RUNNING && t->priority < old_priority)
+    {
+      /* Yield if we dropped priority and are no longer highest. */
+      if (!list_empty (&ready_list))
+        {
+          struct thread *highest = list_entry (list_begin (&ready_list), struct thread, elem);
+          if (highest->priority > t->priority)
+            thread_yield ();
+        }
+    }
 }
 
 /* Donates priority to the thread holding the lock. */

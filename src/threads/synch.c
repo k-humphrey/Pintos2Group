@@ -214,7 +214,7 @@ lock_acquire (struct lock *lock)
   struct thread *cur = thread_current ();
   cur->wait_lock = NULL;
   lock->holder = cur;
-  list_push_back (&cur->locks_held, &lock->elem);
+  list_insert_ordered (&cur->locks_held, &lock->elem, lock_priority_less, NULL);
   
   /* Update lock's max_priority based on remaining waiters. */
   if (!list_empty (&lock->semaphore.waiters))
@@ -259,20 +259,6 @@ lock_release (struct lock *lock)
 
   struct thread *cur = thread_current ();
   list_remove (&lock->elem);
-  lock->holder = NULL;
-  thread_update_priority (cur);
-  sema_up (&lock->semaphore);
-}
-
-/* Returns true if the current thread holds LOCK, false
-   otherwise.  (Note that testing whether some other thread holds
-   a lock would be racy.) */
-bool
-lock_held_by_current_thread (const struct lock *lock) 
-{
-  ASSERT (lock != NULL);
-
-  return lock->holder == thread_current ();
 }
 
 /* One semaphore in a list. */
