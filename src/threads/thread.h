@@ -94,6 +94,11 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
     int64_t waketick; //this is the when the thread needs to wake, only used when thread is blocked for a timer.
+    
+    /* Priority Donation. */
+    int base_priority;                  /* Base priority. */
+    struct list locks_held;             /* Locks held by the thread. */
+    struct lock *wait_lock;          /* Lock the thread is waiting for. */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -142,5 +147,7 @@ int thread_get_load_avg (void);
 
 void thread_sleep(int64_t);
 void thread_wake();
+
+bool thread_priority_less (const struct list_elem *, const struct list_elem *, void *);
 
 #endif /* threads/thread.h */

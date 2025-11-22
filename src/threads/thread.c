@@ -95,6 +95,73 @@ thread_priority_less (const struct list_elem *a, const struct list_elem *b, void
   return ta->priority > tb->priority; 
 }
 
+  return ta->priority > tb->priority; 
+}
+
+/* Updates the priority of the current thread. */
+void
+thread_update_priority (struct thread *t)
+{
+  int max_priority = t->base_priority;
+  struct list_elem *e;
+
+  if (!list_empty (&t->locks_held))
+    {
+      for (e = list_begin (&t->locks_held); e != list_end (&t->locks_held);
+           e = list_next (e))
+        {
+          struct lock *l = list_entry (e, struct lock, elem);
+          if (l->max_priority > max_priority)
+            max_priority = l->max_priority;
+        }
+    }
+
+  t->priority = max_priority;
+}
+
+/* Donates priority to the thread holding the lock. */
+void
+thread_donate_priority (struct thread *t)
+{
+  enum intr_level old_level = intr_disable ();
+  struct thread *cur = t;
+  
+  for (int depth = 0; depth < 8; depth++)
+    {
+      if (cur->wait_lock == NULL)
+        break;
+      
+      struct lock *lock = cur->wait_lock;
+      struct thread *holder = lock->holder;
+      if (holder == NULL)
+        break;
+      
+      /* Update lock's max_priority to ensure persistence of donation. */
+      if (cur->priority > lock->max_priority)
+        lock->max_priority = cur->priority;
+
+      /* Only update holder's priority if we are boosting it. 
+         This handles multiple donations (respecting the max). */
+      if (holder->priority < cur->priority)
+        {
+          holder->priority = cur->priority;
+          
+          /* Re-sort the list the holder is in, if any. */
+          if (holder->status == THREAD_READY)
+            {
+              list_sort (&ready_list, thread_priority_less, NULL);
+            }
+          else if (holder->status == THREAD_BLOCKED && holder->wait_lock != NULL)
+            {
+              list_sort (&holder->wait_lock->semaphore.waiters, thread_priority_less, NULL);
+            }
+        }
+        
+      cur = holder;
+    }
+  intr_set_level (old_level);
+}
+
 void
 thread_init (void) 
 {
@@ -355,12 +422,21 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+void
+thread_set_priority (int new_priority) 
+{
+  struct thread *cur = thread_current ();
+  cur->base_priority = new_priority;
+  thread_update_priority (cur);
+
+  /* If we are waiting on a lock, our new priority might need to be donated. */
+  if (cur->wait_lock != NULL)
+    thread_donate_priority (cur);
 
   if (!list_empty (&ready_list))
     {
       struct thread *highest = list_entry (list_begin (&ready_list), struct thread, elem);
-      if (highest->priority > new_priority)
+      if (highest->priority > cur->priority)
         thread_yield ();
     }
 }
@@ -489,6 +565,9 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->base_priority = priority;
+  list_init (&t->locks_held);
+  t->wait_lock = NULL;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
