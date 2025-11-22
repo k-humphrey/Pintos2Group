@@ -86,6 +86,15 @@ static tid_t allocate_tid (void);
 
    It is not safe to call thread_current() until this function
    finishes. */
+/* Returns true if thread A has higher priority than thread B. */
+bool
+thread_priority_less (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct thread *ta = list_entry (a, struct thread, elem);
+  struct thread *tb = list_entry (b, struct thread, elem);
+  return ta->priority > tb->priority; 
+}
+
 void
 thread_init (void) 
 {
@@ -240,8 +249,16 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered (&ready_list, &t->elem, thread_priority_less, NULL);
   t->status = THREAD_READY;
+  
+  if (thread_current () != idle_thread && thread_current ()->priority < t->priority)
+    {
+      if (intr_context ())
+        intr_yield_on_return ();
+      else
+        thread_yield ();
+    }
   intr_set_level (old_level);
 }
 
@@ -311,7 +328,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, thread_priority_less, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -338,7 +355,14 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  return;
+  thread_current ()->priority = new_priority;
+
+  if (!list_empty (&ready_list))
+    {
+      struct thread *highest = list_entry (list_begin (&ready_list), struct thread, elem);
+      if (highest->priority > new_priority)
+        thread_yield ();
+    }
 }
 
 /* Returns the current thread's priority. */
@@ -634,8 +658,12 @@ void thread_wake() {
         if (t->waketick <= timer_ticks()) {
             e = list_remove(e);  // Remove from sleep list
             t->status = THREAD_READY;  // Set it to ready
-            // Push it to the ready list
-            list_push_back(&ready_list, &t->elem);
+            // Insert into ready list ordered by priority
+            list_insert_ordered(&ready_list, &t->elem, thread_priority_less, NULL);
+            
+            // Preempt if woken thread has higher priority
+            if (t->priority > thread_current()->priority)
+                intr_yield_on_return();
         } else {
             // If the thread is not ready yet, we can't pop anymore off, exit function
             threadminTick = t->waketick; //this is the new minimum now
