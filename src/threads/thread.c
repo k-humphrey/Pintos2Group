@@ -158,9 +158,9 @@ thread_donate_priority (struct thread *t)
             {
               list_sort (&ready_list, thread_priority_less, NULL);
             }
-          else if (holder->status == THREAD_BLOCKED && holder->wait_lock != NULL)
+          else if (holder->status == THREAD_BLOCKED && holder->wait_sema != NULL)
             {
-              list_sort (&holder->wait_lock->semaphore.waiters, thread_priority_less, NULL);
+              list_sort (&holder->wait_sema->waiters, thread_priority_less, NULL);
             }
         }
         
@@ -572,6 +572,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->base_priority = priority;
   list_init (&t->locks_held);
   t->wait_lock = NULL;
+  t->wait_sema = NULL;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
@@ -730,7 +731,7 @@ void thread_sleep(int64_t waketick){
 
 
 
-void thread_wake() {
+void thread_wake(void) {
     struct thread* t;
     struct list_elem* e = list_begin(&sleep_list);
     
