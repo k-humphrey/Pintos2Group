@@ -95,25 +95,32 @@ thread_priority_less (const struct list_elem *a, const struct list_elem *b, void
   return ta->priority > tb->priority; 
 }
 
+/* Returns true if lock A has higher priority than lock B. */
+bool
+lock_priority_less (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct lock *la = list_entry (a, struct lock, elem);
+  struct lock *lb = list_entry (b, struct lock, elem);
+  return la->max_priority > lb->max_priority;
+}
+
 /* Updates the priority of the current thread. */
 void
 thread_update_priority (struct thread *t)
 {
-  int max_priority = t->base_priority;
-  struct list_elem *e;
+  int old_priority = t->priority;
+  t->priority = t->base_priority;
 
   if (!list_empty (&t->locks_held))
     {
-      for (e = list_begin (&t->locks_held); e != list_end (&t->locks_held);
-           e = list_next (e))
-        {
-          struct lock *l = list_entry (e, struct lock, elem);
-          if (l->max_priority > max_priority)
-            max_priority = l->max_priority;
-        }
+      list_sort (&t->locks_held, lock_priority_less, NULL);
+      struct lock *l = list_entry (list_front (&t->locks_held), struct lock, elem);
+      if (l->max_priority > t->priority)
+        t->priority = l->max_priority;
     }
 
-  t->priority = max_priority;
+  if (t->priority != old_priority && t->status == THREAD_READY)
+    list_sort (&ready_list, thread_priority_less, NULL);
 }
 
 /* Donates priority to the thread holding the lock. */

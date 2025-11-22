@@ -151,5 +151,6 @@ void thread_wake();
 void thread_update_priority (struct thread *);
 void thread_donate_priority (struct thread *);
 bool thread_priority_less (const struct list_elem *, const struct list_elem *, void *);
+bool lock_priority_less (const struct list_elem *, const struct list_elem *, void *);
 
 #endif /* threads/thread.h */
