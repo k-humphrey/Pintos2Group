@@ -204,10 +204,7 @@ lock_acquire (struct lock *lock)
   if (lock->holder != NULL)
     {
       cur->wait_lock = lock;
-      
-      if (cur->priority > lock->max_priority)
-        lock->max_priority = cur->priority;
-        
+      /* IMPORTANT: Sort the list logic is handled by thread_donate_priority recursion */
       thread_donate_priority (cur);
     }
 
