@@ -200,28 +200,38 @@ lock_acquire (struct lock *lock)
   ASSERT (!lock_held_by_current_thread (lock));
 
   struct thread *cur = thread_current ();
+  enum intr_level old_level = intr_disable ();
 
   if (lock->holder != NULL)
     {
       cur->wait_lock = lock;
-      /* IMPORTANT: Sort the list logic is handled by thread_donate_priority recursion */
+      /* Propagate donation logic */
       thread_donate_priority (cur);
     }
 
   sema_down (&lock->semaphore);
   
+  // Acquired the lock
   cur->wait_lock = NULL;
   lock->holder = cur;
-  list_insert_ordered (&cur->locks_held, &lock->elem, lock_priority_less, NULL);
   
-  /* Update lock's max_priority based on remaining waiters. */
+  /* 1. Update lock's max_priority based on remaining waiters FIRST. */
+  /* This ensures the value is correct before we sort it into the list. */
   if (!list_empty (&lock->semaphore.waiters))
     {
       struct list_elem *max = list_begin (&lock->semaphore.waiters);
       lock->max_priority = list_entry (max, struct thread, elem)->priority;
     }
   else
-    lock->max_priority = PRI_MIN;
+    {
+      lock->max_priority = PRI_MIN;
+    }
+
+  /* 2. Insert lock into the thread's held list. */
+  /* Now that max_priority is correct, the sort will be valid. */
+  list_insert_ordered (&cur->locks_held, &lock->elem, lock_priority_less, NULL);
+    
+  intr_set_level (old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -256,11 +266,21 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
 
   struct thread *cur = thread_current ();
+  enum intr_level old_level = intr_disable ();
+
+  // 1. Remove lock from the held list.
   list_remove (&lock->elem);
   lock->holder = NULL;
   
-  thread_update_priority (cur);
+  // 2. Wake up the highest priority waiting thread FIRST.
+  // This ensures the high-priority waiter is in the ready_list BEFORE we drop our priority.
   sema_up (&lock->semaphore);
+
+  // 3. Recalculate priority (revoking donation).
+  // If our priority drops below the thread we just woke up, this will trigger a yield.
+  thread_update_priority (cur); 
+  
+  intr_set_level (old_level);
 }
 
 /* Returns true if the current thread holds LOCK, false
