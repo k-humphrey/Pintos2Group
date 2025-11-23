@@ -124,11 +124,15 @@ thread_update_priority (struct thread *t)
           list_remove (&t->elem);
           list_insert_ordered (&ready_list, &t->elem, thread_priority_less, NULL);
         }
-      else if (t->status == THREAD_BLOCKED && t->wait_sema != NULL)
+      else if (t->status == THREAD_BLOCKED)
+      {
+        if (t->wait_sema != NULL)
         {
-          // Re-sort the semaphore wait list the thread is blocked on
           list_sort (&t->wait_sema->waiters, thread_priority_less, NULL);
+        } else if (t->wait_lock != NULL) {
+          list_sort (&t->wait_lock->semaphore.waiters, thread_priority_less, NULL);
         }
+      }
       else if (t == thread_current ())
         {
           // If running, check preemption
@@ -137,7 +141,8 @@ thread_update_priority (struct thread *t)
               struct thread *highest = list_entry (list_begin (&ready_list), struct thread, elem);
               if (highest->priority > t->priority)
                 {
-                  if (intr_context ()) intr_yield_on_return ();
+                  if (intr_context ())
+                    intr_yield_on_return ();
                   else thread_yield ();
                 }
             }
@@ -175,10 +180,13 @@ thread_donate_priority (struct thread *t)
               list_remove (&holder->elem);
               list_insert_ordered (&ready_list, &holder->elem, thread_priority_less, NULL);
             }
-          else if (holder->status == THREAD_BLOCKED && holder->wait_sema != NULL)
-            {
+          else if (holder->status == THREAD_BLOCKED)
+          {
+            if (holder->wait_sema != NULL)
               list_sort (&holder->wait_sema->waiters, thread_priority_less, NULL);
-            }
+            else if (holder->wait_lock != NULL)
+              list_sort (&holder->wait_lock->semaphore.waiters, thread_priority_less, NULL);
+          }
         }
       
       cur = holder;
