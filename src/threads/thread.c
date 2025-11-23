@@ -96,6 +96,7 @@ thread_priority_less (const struct list_elem *a, const struct list_elem *b, void
 }
 
 /* Updates the thread's effective priority based on its base priority and held locks. */
+/* Updates the thread's effective priority based on its base priority and held locks. */
 void
 thread_update_priority (struct thread *t)
 {
@@ -108,39 +109,36 @@ thread_update_priority (struct thread *t)
   // 2. Apply highest donation from held locks
   if (!list_empty (&t->locks_held))
     {
-      // Sort locks by max_priority (highest first) to find the max donation
       list_sort (&t->locks_held, lock_priority_less, NULL);
-      
       struct lock *highest_lock = list_entry (list_front (&t->locks_held), struct lock, elem);
       if (highest_lock->max_priority > t->priority)
-        {
-          t->priority = highest_lock->max_priority;
-        }
+        t->priority = highest_lock->max_priority;
     }
 
-  // 3. Handle Priority Change (Re-sort or Yield)
+  // 3. Handle Priority Change
   if (t->priority != old_priority)
     {
       if (t->status == THREAD_READY)
         {
-          // Re-insert into ready_list to maintain sorted order
+          // Re-insert into ready_list
           list_remove (&t->elem);
           list_insert_ordered (&ready_list, &t->elem, thread_priority_less, NULL);
         }
-      else if (t->status == THREAD_RUNNING)
+      else if (t->status == THREAD_BLOCKED && t->wait_sema != NULL)
         {
-          // If running, check if we dropped below the highest ready thread
+          // Re-sort the semaphore wait list the thread is blocked on
+          list_sort (&t->wait_sema->waiters, thread_priority_less, NULL);
+        }
+      else if (t == thread_current ())
+        {
+          // If running, check preemption
           if (!list_empty (&ready_list))
             {
               struct thread *highest = list_entry (list_begin (&ready_list), struct thread, elem);
               if (highest->priority > t->priority)
                 {
-                  // We must yield, but we are in an interrupt-disabled context.
-                  // If this is called from an external interrupt (timer), use intr_yield_on_return.
-                  if (intr_context ())
-                    intr_yield_on_return ();
-                  else
-                    thread_yield ();
+                  if (intr_context ()) intr_yield_on_return ();
+                  else thread_yield ();
                 }
             }
         }
@@ -150,6 +148,7 @@ thread_update_priority (struct thread *t)
 }
 
 /* Propagates priority donation up the lock chain. */
+/* Propagates priority donation up the lock chain. */
 void
 thread_donate_priority (struct thread *t)
 {
@@ -158,31 +157,30 @@ thread_donate_priority (struct thread *t)
 
   for (int depth = 0; depth < 8; depth++)
     {
-      if (cur->wait_lock == NULL) 
-        break;
-
+      if (cur->wait_lock == NULL) break;
       struct thread *holder = cur->wait_lock->holder;
-      if (holder == NULL) // Should not happen if wait_lock is set, but safety check
-        break;
+      if (holder == NULL) break;
 
-      // 1. Update the lock's max_priority to include cur's donation
+      // Update lock max_priority
       if (cur->priority > cur->wait_lock->max_priority)
         cur->wait_lock->max_priority = cur->priority;
 
-      // 2. Update the holder's priority if needed
+      // Update holder priority
       if (holder->priority < cur->priority)
         {
           holder->priority = cur->priority;
 
-          // If holder is READY, re-sort it in the ready_list
           if (holder->status == THREAD_READY)
             {
               list_remove (&holder->elem);
               list_insert_ordered (&ready_list, &holder->elem, thread_priority_less, NULL);
             }
+          else if (holder->status == THREAD_BLOCKED && holder->wait_sema != NULL)
+            {
+              list_sort (&holder->wait_sema->waiters, thread_priority_less, NULL);
+            }
         }
       
-      // Move up the chain
       cur = holder;
     }
   
